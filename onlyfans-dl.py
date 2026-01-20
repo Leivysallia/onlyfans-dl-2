@@ -293,7 +293,7 @@ if __name__ == "__main__":
 		except: print('Unable to use DIR: ' + DL_DIR)
 	print("CWD = " + os.getcwd())
 	#rules for the signed headers
-	dynamic_rules = {"end":"67a0ec50","start":"36587","format":"36587:{}:{:x}:67a0ec50","prefix":"36587","suffix":"67a0ec50","revision":"202502031617-af2daeeb87","app_token":"33d57ade8c02dbc5a333db99ff9ae26a","static_param":"r0COhCenVY6tUCrcnkbwz727f1m0UHsv","remove_headers":["user_id"],"checksum_indexes":[1,1,1,2,2,5,5,6,6,7,7,11,12,12,13,14,14,16,17,20,20,20,21,23,24,25,25,25,29,30,31,39],"checksum_constant":118}
+	dynamic_rules = {"end":"69406376","start":"51892","format":"51892:{}:{:x}:69406376","prefix":"51892","suffix":"69406376","revision":"202502031617-af2daeeb87","app_token":"33d57ade8c02dbc5a333db99ff9ae26a","static_param":"7HMjX3tp4B4JJDOryHAMCUIQCtmGq69D","remove_headers":["user_id"],"checksum_indexes":[15,35,3,7,21,26,39,35,4,0,6,29,35,28,37,27,22,4,9,10,37,21,27,13,17,31,28,24,0,14,9,0],"checksum_constant":53}
 	PROFILE_LIST = sys.argv
 	PROFILE_LIST.pop(0)
 	if PROFILE_LIST[-1] == "0":
