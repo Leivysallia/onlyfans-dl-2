@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 
-import os
-import sys
-import json
-import shutil
-import pathlib
-import requests
 import hashlib
-from datetime import datetime, timedelta
+import json
+import os
+import pathlib
+import shutil
+import sys
+from datetime import UTC, datetime, timedelta
 
-requests.urllib3.disable_warnings()
+import requests
+import urllib3
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 ######################
 # CONFIGURATIONS     #
@@ -32,7 +34,7 @@ VERBOSITY = 2
 # Download Directory. Uses CWD if null
 DL_DIR = ''
 # List of accounts to skip
-ByPass = ['']
+ByPass: list[str] = ['']
 
 # Separate photos into subdirectories by post/album (Single photo posts are not put into subdirectories)
 ALBUMS = True
@@ -58,7 +60,7 @@ API_URL = 'https://onlyfans.com/api2/v2'
 new_files = 0
 MAX_AGE = 0
 LATEST = 0
-API_HEADER = {
+API_HEADER: dict[str, str] = {
     'Accept': 'application/json, text/plain, */*',
     'Accept-Encoding': 'gzip, deflate',
     'app-token': '33d57ade8c02dbc5a333db99ff9ae26a',
@@ -69,49 +71,52 @@ API_HEADER = {
 }
 
 
-def create_signed_headers(link, queryParams):
+def create_signed_headers(link, queryParams) -> None:
     global API_HEADER
     path = '/api2/v2' + link
     if queryParams:
         query = '&'.join('='.join((key, val)) for (key, val) in queryParams.items())
-        path = f'{path}?{query}'
+        path: str = f'{path}?{query}'
     unixtime = str(int(datetime.now().timestamp()))
-    msg = '\n'.join([dynamic_rules['static_param'], unixtime, path, USER_ID])
-    message = msg.encode('utf-8')
-    hash_object = hashlib.sha1(message)
-    sha_1_sign = hash_object.hexdigest()
-    sha_1_b = sha_1_sign.encode('ascii')
-    checksum = (
+    msg: str = '\n'.join([dynamic_rules['static_param'], unixtime, path, USER_ID])
+    message: bytes = msg.encode('utf-8')
+    hash_object: hashlib.HASH = hashlib.sha1(message)
+    sha_1_sign: str = hash_object.hexdigest()
+    sha_1_b: bytes = sha_1_sign.encode('ascii')
+    checksum: int = (
         sum([sha_1_b[number] for number in dynamic_rules['checksum_indexes']]) + dynamic_rules['checksum_constant']
     )
-    format = dynamic_rules['prefix'] + ':{}:{:x}:' + dynamic_rules['suffix']
+    format: str = dynamic_rules['prefix'] + ':{}:{:x}:' + dynamic_rules['suffix']
     API_HEADER['sign'] = format.format(sha_1_sign, abs(checksum))
     API_HEADER['time'] = unixtime
     return
 
 
-def showAge(myStr):
+def showAge(myStr) -> str:
     myStr = str(myStr)
-    tmp = myStr.split('.')
+    tmp: list[str] = myStr.split('.')
     t = int(tmp[0])
-    dt_obj = datetime.fromtimestamp(t)
-    strOut = dt_obj.strftime('%Y-%m-%d')
+    dt_obj: datetime = datetime.fromtimestamp(t)
+    strOut: str = dt_obj.strftime('%Y-%m-%d')
     return strOut
 
 
-def latest(profile):
+def latest(profile) -> str:
     latest = '0'
+    dirpath: list[str]
+    dirs: list[str]
+    files: list[str]
     for dirpath, dirs, files in os.walk(profile):
         for f in files:
             if f.startswith('20'):
-                latest = f if f > latest else latest
+                latest: str = f if f > latest else latest
     return latest[:10]
 
 
 def api_request(endpoint, apiType):
     posts_limit = 50
     age = ''
-    getParams = {'limit': str(posts_limit), 'order': 'publish_date_asc'}
+    getParams: dict[str, str] = {'limit': str(posts_limit), 'order': 'publish_date_asc'}
     if apiType == 'messages':
         getParams['order'] = 'desc'
     if apiType == 'subscriptions':
@@ -120,11 +125,11 @@ def api_request(endpoint, apiType):
         MAX_AGE and apiType != 'messages' and apiType != 'purchased' and apiType != 'subscriptions'
     ):  # Cannot be limited by age
         getParams['afterPublishTime'] = str(MAX_AGE) + '.000000'
-        age = ' age ' + str(showAge(getParams['afterPublishTime']))
+        age: str = ' age ' + str(showAge(getParams['afterPublishTime']))
         # Messages can only be limited by offset or last message ID. This requires its own separate function. TODO
     create_signed_headers(endpoint, getParams)
     if VERBOSITY >= 3:
-        print(API_URL + endpoint + age)
+        print(f'{API_URL}{endpoint}{age}')
 
     status = requests.get(API_URL + endpoint, headers=API_HEADER, params=getParams)
     if status.ok:
@@ -140,26 +145,29 @@ def api_request(endpoint, apiType):
             getParams['offset'] = str(posts_limit)
         else:
             getParams['afterPublishTime'] = list_base[len(list_base) - 1]['postedAtPrecise']
-        while 1:
+        while True:
             create_signed_headers(endpoint, getParams)
             if VERBOSITY >= 3:
-                print(API_URL + endpoint + age)
-            status = requests.get(API_URL + endpoint, headers=API_HEADER, params=getParams)
+                print(f'{API_URL}{endpoint}{age}')
+            status: requests.Response = requests.get(API_URL + endpoint, headers=API_HEADER, params=getParams)
             if status.ok:
                 list_extend = status.json()
-            if apiType == 'messages':
-                list_base['list'].extend(list_extend['list'])
-                if list_extend['hasMore'] == False or len(list_extend['list']) < posts_limit or not status.ok:
-                    break
-                getParams['id'] = str(list_base['list'][len(list_base['list']) - 1]['id'])
-                continue
-            list_base.extend(list_extend)  # Merge with previous posts
-            if len(list_extend) < posts_limit:
-                break
-            if apiType == 'purchased' or apiType == 'subscriptions':
-                getParams['offset'] = str(int(getParams['offset']) + posts_limit)
             else:
-                getParams['afterPublishTime'] = list_extend[len(list_extend) - 1]['postedAtPrecise']
+                list_extend = None
+            if list_extend is not None:
+                if apiType == 'messages':
+                    list_base['list'].extend(list_extend['list'])
+                    if not list_extend['hasMore'] or len(list_extend['list']) < posts_limit or not status.ok:
+                        break
+                    getParams['id'] = str(list_base['list'][len(list_base['list']) - 1]['id'])
+                    continue
+                list_base.extend(list_extend)  # Merge with previous posts
+                if len(list_extend) < posts_limit:
+                    break
+                if apiType == 'purchased' or apiType == 'subscriptions':
+                    getParams['offset'] = str(int(getParams['offset']) + posts_limit)
+                else:
+                    getParams['afterPublishTime'] = list_extend[len(list_extend) - 1]['postedAtPrecise']
     return list_base
 
 
@@ -167,19 +175,19 @@ def get_user_info(profile):
     # <profile> = "me" -> info about yourself
     info = api_request('/users/' + profile, 'user-info')
     if 'error' in info:
-        print('\nFailed to get user: ' + profile + '\n' + info['error']['message'] + '\n')
+        print(f'\nFailed to get user:  {profile}\n{info["error"]["message"]}\n')
     return info
 
 
-def get_subscriptions():
+def get_subscriptions() -> list[str]:
     subs = api_request('/subscriptions/subscribes', 'subscriptions')
     if 'error' in subs:
-        print('\nSUBSCRIPTIONS ERROR: ' + subs['error']['message'])
-        return
+        print(f'\nSUBSCRIPTIONS ERROR: {subs["error"]["message"]}')
+        return ['error', 'error']
     return [row['username'] for row in subs]
 
 
-def download_media(media, subtype, postdate, album=''):
+def download_media(media, subtype, postdate, album='') -> None:
     filename = postdate + '_' + str(media['id'])
 
     if 'source' in media:
@@ -226,16 +234,16 @@ def download_media(media, subtype, postdate, album=''):
         pathlib.Path(PROFILE + os.path.dirname(path)).mkdir(parents=True, exist_ok=True)
     if not os.path.isfile(PROFILE + path):
         if VERBOSITY >= 2 or (MAX_AGE and VERBOSITY >= 1):
-            print(PROFILE + path)
+            print(f'{PROFILE}{path}')
         global new_files
         new_files += 1
         try:
-            r = requests.get(source, stream=True, timeout=(4, None), verify=False)
-        except:
-            print('Error getting: ' + source + ' (skipping)')
+            r: requests.Response = requests.get(source, stream=True, timeout=(4, None), verify=False)
+        except Exception:
+            print(f'Error getting: {source} (skipping)')
             return
         if r.status_code != 200:
-            print(r.url + ' :: ' + str(r.status_code))
+            print(f'{r.url} :: {str(r.status_code)}')
             return
         # Writing to a temp file while downloading, so if we interrupt
         # a file, we will not skip it but re-download it at next time.
@@ -247,17 +255,17 @@ def download_media(media, subtype, postdate, album=''):
         shutil.move(PROFILE + path + '.part', PROFILE + path)
     else:
         if VERBOSITY >= 4:
-            print(path + ' ... already exists')
+            print(f'{path} ... already exists')
 
 
-def get_content(MEDIATYPE, API_LOCATION):
+def get_content(MEDIATYPE, API_LOCATION) -> None:
     posts = api_request(API_LOCATION, MEDIATYPE)
     if 'error' in posts:
-        print('\nERROR: ' + API_LOCATION + ' :: ' + posts['error']['message'])
+        print(f'\nERROR: {API_LOCATION} :: {posts["error"]["message"]}')
     if MEDIATYPE == 'messages':
         posts = posts['list']
     if len(posts) > 0:
-        print('Found ' + str(len(posts)) + ' ' + MEDIATYPE)
+        print(f'Found  {str(len(posts))} {MEDIATYPE}')
         for post in posts:
             if 'media' not in post or ('canViewMedia' in post and not post['canViewMedia']):
                 continue
@@ -287,13 +295,13 @@ def get_content(MEDIATYPE, API_LOCATION):
                 ) or ('files' in media and 'canView' in media and media['canView']):
                     download_media(media, MEDIATYPE, postdate, album)
         global new_files
-        print('Downloaded ' + str(new_files) + ' new ' + MEDIATYPE)
+        print(f'Downloaded {str(new_files)} new {MEDIATYPE}')
         new_files = 0
 
 
 if __name__ == '__main__':
     if len(sys.argv) < 2:
-        print('\nUsage: ' + sys.argv[0] + ' <list of profiles / all> <max age (optional)>\n')
+        print(f'\nUsage: {sys.argv[0]}  <list of profiles / all> <max age (optional)>\n')
         print('max age must be an integer. number of days back from today.\n')
         print(
             'if max age = 0, the script will find the latest date amongst the files for each profile independantly.\n'
@@ -302,12 +310,11 @@ if __name__ == '__main__':
         print('Update Browser User Agent (Every time it updates): https://ipchicken.com/\n')
         exit()
 
-    if DL_DIR:
         try:
             os.chdir(DL_DIR)
-        except:
-            print('Unable to use DIR: ' + DL_DIR)
-    print('CWD = ' + os.getcwd())
+        except FileNotFoundError:
+            print(f'Unable to use DIR: {DL_DIR}')
+    print(f'CWD = {os.getcwd()}')
     # rules for the signed headers
     dynamic_rules = {
         'end': '69406376',
@@ -355,14 +362,14 @@ if __name__ == '__main__':
         ],
         'checksum_constant': 53,
     }
-    PROFILE_LIST = sys.argv
+    PROFILE_LIST: list[str] = sys.argv
     PROFILE_LIST.pop(0)
     if PROFILE_LIST[-1] == '0':
         LATEST = 1
         PROFILE_LIST.pop(-1)
     if len(PROFILE_LIST) > 1 and PROFILE_LIST[-1].isnumeric():
         MAX_AGE = int((datetime.today() - timedelta(int(PROFILE_LIST.pop(-1)))).timestamp())
-        print('\nGetting posts newer than ' + str(datetime.utcfromtimestamp(int(MAX_AGE))) + ' UTC')
+        print(f'\nGetting posts newer than {datetime.fromtimestamp(int(MAX_AGE), UTC)} UTC')
 
     if PROFILE_LIST[0] == 'all':
         PROFILE_LIST = get_subscriptions()
@@ -370,7 +377,7 @@ if __name__ == '__main__':
     for PROFILE in PROFILE_LIST:
         if PROFILE in ByPass:
             if VERBOSITY > 0:
-                print('skipping ' + PROFILE)
+                print(f'skipping {PROFILE}')
             continue
         user_info = get_user_info(PROFILE)
 
@@ -380,15 +387,15 @@ if __name__ == '__main__':
             continue
 
         if LATEST:
-            latestDate = latest(PROFILE)
+            latestDate: str = latest(PROFILE)
             if latestDate != '0':
                 MAX_AGE = int(datetime.strptime(latestDate + ' 00:00:00', '%Y-%m-%d %H:%M:%S').timestamp())
-                print('\nGetting posts newer than ' + latestDate + ' 00:00:00 UTC')
+                print(f'\nGetting posts newer than {latestDate} 00:00:00 UTC')
 
         if os.path.isdir(PROFILE):
-            print('\n' + PROFILE + ' exists.\nDownloading new media, skipping pre-existing.')
+            print(f'\n {PROFILE} exists.\nDownloading new media, skipping pre-existing.')
         else:
-            print('\nDownloading content to ' + PROFILE)
+            print(f'\nDownloading content to {PROFILE}')
 
         if POSTS:
             get_content('posts', '/users/' + PROFILE_ID + '/posts')
